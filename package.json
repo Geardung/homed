@@ -1,0 +1,22 @@
+{
+  "name": "homed",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "migrate": "node src/migrate.js",
+    "migrate:status": "node src/migrate.js status",
+    "dev": "node src/server.js"
+  },
+  "dependencies": {
+    "@tma.js/init-data-node": "^2.0.7",
+    "@tma.js/sdk": "^3.2.0",
+    "dotenv": "^17.4.2",
+    "express": "^4.22.1",
+    "sqlite3": "^6.0.1"
+  }
+}
