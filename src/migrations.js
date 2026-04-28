@@ -6,6 +6,14 @@ import { all, execSql, run } from './db.js';
 const migrationsDirectory = path.resolve(process.cwd(), 'migrations');
 const migrationsTable = 'schema_migrations';
 
+function normalizeMigrationSql(sql) {
+  return sql.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+function toChecksum(sql) {
+  return crypto.createHash('sha256').update(sql).digest('hex');
+}
+
 /**
  * Returns sorted list of migration files from /migrations.
  */
@@ -25,20 +33,23 @@ async function readMigrationFiles() {
 
     const migrationPath = path.join(migrationsDirectory, entry.name);
     const sql = await fs.readFile(migrationPath, 'utf8');
+    const normalizedSql = normalizeMigrationSql(sql);
     const version = entry.name.split('_')[0];
     if (seenVersions.has(version)) {
       throw new Error(`Duplicate migration version detected: ${version}`);
     }
     seenVersions.add(version);
 
-    const checksum = crypto.createHash('sha256').update(sql).digest('hex');
+    const checksum = toChecksum(normalizedSql);
+    const windowsChecksum = toChecksum(normalizedSql.replace(/\n/g, '\r\n'));
 
     migrationFiles.push({
       version,
       filename: entry.name,
       path: migrationPath,
-      sql,
+      sql: normalizedSql,
       checksum,
+      alternateChecksum: windowsChecksum,
     });
   }
 
@@ -140,10 +151,19 @@ export async function migrate(db) {
   for (const migration of files) {
     const appliedItem = applied.get(migration.version);
     if (appliedItem) {
-      if (appliedItem.checksum !== migration.checksum) {
+      const checksumMatch = appliedItem.checksum === migration.checksum;
+      const alternateMatch = appliedItem.checksum === migration.alternateChecksum;
+      if (!checksumMatch && !alternateMatch) {
         throw new Error(
           `Migration ${migration.filename} already applied, but checksum mismatch. ` +
             `Has ${appliedItem.checksum}, expected ${migration.checksum}.`,
+        );
+      }
+      if (!checksumMatch && alternateMatch) {
+        await run(
+          db,
+          `UPDATE ${migrationsTable} SET checksum = ? WHERE version = ?`,
+          [migration.checksum, migration.version],
         );
       }
 

@@ -1,0 +1,285 @@
+﻿<!doctype html>
+<html lang="ru-RU">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Homed — Напоминание лекарств</title>
+    <link rel="stylesheet" href="/styles/global.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="panel">
+        <div class="toolbar">
+          <h2>Мои лекарства</h2>
+          <button id="open-med-modal" type="button">+ Добавить лекарство</button>
+        </div>
+
+        <div class="filter-bar">
+          <label class="field field-inline">
+            <span>Поиск</span>
+            <input id="search-filter" type="text" placeholder="Название" />
+          </label>
+          <label class="field field-inline field-wide">
+            <span>Сортировка</span>
+            <select id="sort-filter">
+              <option value="created_at_desc">Сначала ближайший</option>
+              <option value="created_at_asc">Сначала поздний</option>
+              <option value="name_asc">По названию (A-Z)</option>
+              <option value="name_desc">По названию (Z-A)</option>
+              <option value="finish_asc">Скорость истечения</option>
+              <option value="remaining_desc">Остаток высокий</option>
+              <option value="remaining_asc">Остаток низкий</option>
+            </select>
+          </label>
+          <label class="field field-inline">
+            <span>Статус</span>
+            <select id="status-filter">
+              <option value="active">Активные</option>
+              <option value="archived">Архивные</option>
+              <option value="all">Все</option>
+            </select>
+          </label>
+          <label class="field field-inline">
+            <span>Категория</span>
+            <select id="category-filter">
+              <option value="">Все категории</option>
+            </select>
+          </label>
+          <label class="inline">
+            <input id="low-stock-filter" type="checkbox" /> Низкий запас
+          </label>
+          <label class="inline">
+            <input id="expired-soon-filter" type="checkbox" /> Истекает скоро (3 дня)
+          </label>
+        </div>
+
+        <p id="med-list-empty" class="result">Нет лекарств</p>
+        <div id="med-list" class="cards"></div>
+      </section>
+
+      <div id="med-modal" class="modal-backdrop hidden" aria-hidden="true">
+        <div class="modal-card">
+          <header class="modal-header">
+            <h2 id="med-modal-title">Редактирование лекарства</h2>
+            <button id="close-med-modal" type="button">×</button>
+          </header>
+
+          <form id="med-form" class="form-grid" novalidate>
+            <label class="field">
+              Название
+              <input name="name" type="text" required placeholder="Название" />
+              <p class="field-error" data-error-for="name"></p>
+            </label>
+
+            <label class="field">
+              Категория
+              <input name="category" type="text" placeholder="Например: Витамины, Сердце..." />
+              <p class="field-error" data-error-for="category"></p>
+            </label>
+
+            <label class="field">
+              Цена за упаковку препарата
+              <input name="price" type="number" step="0.01" min="0" placeholder="0.00" />
+              <p class="field-error" data-error-for="price"></p>
+            </label>
+
+            <label class="field">
+              Общее количество
+              <div class="field-inline-control">
+                <input name="total_quantity" type="number" step="0.1" min="0.1" required />
+                <select id="unit-select" name="unit">
+                  <option value="tabs">Таблетки / шт</option>
+                  <option value="ml">ml</option>
+                  <option value="mg">mg</option>
+                  <option value="drops">Капли</option>
+                  <option value="bottle">Флакон</option>
+                </select>
+              </div>
+              <p class="field-error" data-error-for="total_quantity"></p>
+              <p class="field-error" data-error-for="unit"></p>
+            </label>
+
+            <label class="field">
+              Доза
+              <div class="field-inline-control">
+                <input name="dose_amount" type="number" step="0.1" min="0.1" required />
+                <select id="dose-unit-select" name="dose_unit">
+                  <option value="tabs">Таблетки / шт</option>
+                  <option value="ml">ml</option>
+                  <option value="mg">mg</option>
+                  <option value="drops">Капли</option>
+                  <option value="bottle">Флакон</option>
+                </select>
+              </div>
+              <p class="field-error" data-error-for="dose_amount"></p>
+              <p class="field-error" data-error-for="dose_unit"></p>
+            </label>
+
+
+            <input name="expires_at" type="hidden" />
+            <input name="reminder_timezone" type="hidden" />
+
+            <label class="field">
+              Дата начала
+              <input name="start_at" type="date" lang="ru" />
+            </label>
+
+            <fieldset class="field fieldset" id="frequency">
+              <legend>Расписание</legend>
+
+              <label class="inline">
+                <input type="radio" name="frequency_type" value="times_per_day" checked />
+                По количеству раз в день
+              </label>
+              <label class="inline">
+                <input type="radio" name="frequency_type" value="meal_plan" />
+                По приёмам пищи
+              </label>
+              <label class="inline">
+                <input type="radio" name="frequency_type" value="every_n_hours" />
+                Каждые N часов
+              </label>
+              <label class="inline">
+                <input type="radio" name="frequency_type" value="weekly" />
+                По дням
+              </label>
+            <label class="inline">
+              <input type="radio" name="frequency_type" value="week_cycle" />
+              По неделям
+            </label>
+            <label class="inline">
+              <input type="radio" name="frequency_type" value="monthly_cycle" />
+              По месяцам
+            </label>
+
+              <div class="field small" id="timesPerDayRow">
+                <label>
+                  Количество приёмов в день
+                  <input id="timesPerDay" name="timesPerDay" type="number" min="1" max="24" value="1" />
+                </label>
+                <div id="timesPerDaySlots" class="time-slots" aria-label="time slots"></div>
+                <p class="field-error" data-error-for="times_per_day"></p>
+              </div>
+
+              <div class="hidden" id="mealRow">
+                <p class="small-title">Время приёмов</p>
+                <label class="inline">
+                  <input type="checkbox" name="meal" value="breakfast" checked data-time-target="meal-breakfast" />
+                  Завтрак
+                  <input id="meal-breakfast" class="meal-time-input" type="time" value="08:00" />
+                </label>
+                <label class="inline">
+                  <input type="checkbox" name="meal" value="lunch" checked data-time-target="meal-lunch" />
+                  Обед
+                  <input id="meal-lunch" class="meal-time-input" type="time" value="13:00" />
+                </label>
+                <label class="inline">
+                  <input type="checkbox" name="meal" value="dinner" checked data-time-target="meal-dinner" />
+                  Ужин
+                  <input id="meal-dinner" class="meal-time-input" type="time" value="19:00" />
+                </label>
+                <label class="inline">
+                  <input type="checkbox" name="meal" value="snack" data-time-target="meal-snack" />
+                  Перекус
+                  <input id="meal-snack" class="meal-time-input" type="time" value="16:00" />
+                </label>
+                <label class="inline">
+                  <input type="checkbox" name="meal" value="bedtime" data-time-target="meal-bedtime" />
+                  Перед сном
+                  <input id="meal-bedtime" class="meal-time-input" type="time" value="22:00" />
+                </label>
+                <p class="field-error" data-error-for="meal_plan"></p>
+              </div>
+
+              <div class="hidden" id="hoursRow">
+                <label>
+                  Каждые N часов
+                  <input id="everyHours" name="everyHours" type="number" min="1" max="240" value="8" />
+                </label>
+                <label>
+                  Время начала
+                  <input id="everyStartTime" name="everyStartTime" type="time" value="08:00" />
+                </label>
+                <label>
+                  Время
+                  <div id="everyHoursSlots" class="time-slots"></div>
+                </label>
+                <p class="field-error" data-error-for="every_n_hours"></p>
+              </div>
+
+              <div class="hidden" id="weeklyRow">
+                <p class="small-title">По дням</p>
+                <div class="week-days">
+                  <label><input type="checkbox" name="weeklyDay" value="1" />Пн</label>
+                  <label><input type="checkbox" name="weeklyDay" value="2" />Вт</label>
+                  <label><input type="checkbox" name="weeklyDay" value="3" />Ср</label>
+                  <label><input type="checkbox" name="weeklyDay" value="4" />Чт</label>
+                  <label><input type="checkbox" name="weeklyDay" value="5" />Пт</label>
+                  <label><input type="checkbox" name="weeklyDay" value="6" />Сб</label>
+                  <label><input type="checkbox" name="weeklyDay" value="7" />Вс</label>
+                </div>
+                <label>
+                  Количество приёмов в день
+                  <input id="weeklyTimes" name="weeklyTimes" type="number" min="1" max="10" value="1" />
+                </label>
+                <label>
+                  Время
+                  <div id="weeklySlots" class="time-slots"></div>
+                </label>
+                <p class="field-error" data-error-for="weekly"></p>
+              </div>
+
+              <div class="hidden" id="weekCycleRow">
+                <p class="small-title">По неделям</p>
+                <label>
+                  Принимать N недель подряд
+                  <input id="weekOnWeeks" name="weekOnWeeks" type="number" min="1" step="1" value="2" />
+                </label>
+                <label>
+                  Пропуск N недель подряд
+                  <input id="weekOffWeeks" name="weekOffWeeks" type="number" min="0" step="1" value="1" />
+                </label>
+                <label>
+                  Количество приёмов в день
+                  <input id="weekCycleTimesPerDay" name="weekCycleTimesPerDay" type="number" min="1" max="24" value="1" />
+                </label>
+                <label>
+                  Время
+                  <div id="weekCycleSlots" class="time-slots"></div>
+                </label>
+                <p class="field-error" data-error-for="week_cycle"></p>
+              </div>
+
+              <div class="hidden" id="monthCycleRow">
+                <p class="small-title">По месяцам</p>
+                <label>
+                  Принимать N месяцев подряд
+                  <input id="monthOnMonths" name="monthOnMonths" type="number" min="1" step="1" value="1" />
+                </label>
+                <label>
+                  Пропуск N месяцев подряд
+                  <input id="monthOffMonths" name="monthOffMonths" type="number" min="0" step="1" value="1" />
+                </label>
+                <label>
+                  Количество приёмов в день
+                  <input id="monthCycleTimesPerDay" name="monthCycleTimesPerDay" type="number" min="1" max="24" value="1" />
+                </label>
+                <label>
+                  Время
+                  <div id="monthCycleSlots" class="time-slots"></div>
+                </label>
+                <p class="field-error" data-error-for="month_cycle"></p>
+              </div>
+            </fieldset>
+
+            <div class="field">
+              <button id="submit-button" type="submit">Сохранить</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </main>
+
+    <script type="module" src="/scripts/app.js"></script>
+  </body>
+</html>
