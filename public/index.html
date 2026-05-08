@@ -8,10 +8,28 @@
   </head>
   <body>
     <main class="layout">
-      <section class="panel">
+      <header class="app-header" role="banner">
+        <div class="app-header__top">
+          <div class="app-brand">
+            <div class="app-brand__title">Homed</div>
+            <div class="app-brand__subtitle">Учёт лекарств и запасов</div>
+          </div>
+          <button id="open-med-modal" type="button" class="btn btn-primary">Добавить препарат</button>
+        </div>
+
+        <nav class="app-nav" aria-label="Разделы">
+          <button id="nav-list" type="button" class="app-nav__tab is-active" aria-current="page" aria-controls="view-list">
+            Список
+          </button>
+          <button id="nav-calendar" type="button" class="app-nav__tab" aria-controls="view-calendar">
+            Календарь
+          </button>
+        </nav>
+      </header>
+
+      <section id="view-list" class="panel" data-view="list">
         <div class="toolbar">
-          <h2>Мои лекарства</h2>
-          <button id="open-med-modal" type="button">+ Добавить лекарство</button>
+          <h2>Препараты</h2>
         </div>
 
         <div class="filter-bar">
@@ -39,12 +57,6 @@
               <option value="all">Все</option>
             </select>
           </label>
-          <label class="field field-inline">
-            <span>Категория</span>
-            <select id="category-filter">
-              <option value="">Все категории</option>
-            </select>
-          </label>
           <label class="inline">
             <input id="low-stock-filter" type="checkbox" /> Низкий запас
           </label>
@@ -57,11 +69,35 @@
         <div id="med-list" class="cards"></div>
       </section>
 
+      <section id="view-calendar" class="panel hidden" data-view="calendar" aria-label="Календарь окончания препаратов">
+        <div class="toolbar">
+          <h2>Календарь</h2>
+          <div class="calendar-toolbar" aria-label="Навигация календаря">
+            <button id="calendar-prev" type="button" class="btn btn-ghost" aria-label="Предыдущий месяц">←</button>
+            <button id="calendar-today" type="button" class="btn btn-ghost">Сегодня</button>
+            <button id="calendar-next" type="button" class="btn btn-ghost" aria-label="Следующий месяц">→</button>
+          </div>
+        </div>
+
+        <div class="calendar">
+          <div class="calendar__meta">
+            <div id="calendar-title" class="calendar__title" aria-live="polite"></div>
+            <div class="calendar__hint muted">Отмечены даты, когда заканчиваются запасы (оценка).</div>
+          </div>
+          <div id="calendar-grid" class="calendar__grid" role="grid" aria-label="Календарь месяца"></div>
+        </div>
+
+        <div class="calendar-details" aria-live="polite">
+          <div class="calendar-details__title">Выберите дату</div>
+          <div id="calendar-details" class="calendar-details__content muted">Кликните по дню с отметкой.</div>
+        </div>
+      </section>
+
       <div id="med-modal" class="modal-backdrop hidden" aria-hidden="true">
         <div class="modal-card">
           <header class="modal-header">
             <h2 id="med-modal-title">Редактирование лекарства</h2>
-            <button id="close-med-modal" type="button">×</button>
+            <button id="close-med-modal" type="button" class="btn btn-ghost" aria-label="Закрыть">×</button>
           </header>
 
           <form id="med-form" class="form-grid" novalidate>
@@ -69,12 +105,6 @@
               Название
               <input name="name" type="text" required placeholder="Название" />
               <p class="field-error" data-error-for="name"></p>
-            </label>
-
-            <label class="field">
-              Категория
-              <input name="category" type="text" placeholder="Например: Витамины, Сердце..." />
-              <p class="field-error" data-error-for="category"></p>
             </label>
 
             <label class="field">
@@ -121,7 +151,16 @@
 
             <label class="field">
               Дата начала
-              <input name="start_at" type="date" lang="ru" />
+              <input
+                name="start_at"
+                type="text"
+                lang="ru"
+                inputmode="numeric"
+                placeholder="ДД.ММ.ГГГГ"
+                maxlength="10"
+                autocomplete="off"
+              />
+              <p class="field-error" data-error-for="start_at"></p>
             </label>
 
             <fieldset class="field fieldset" id="frequency">
@@ -166,27 +205,27 @@
                 <label class="inline">
                   <input type="checkbox" name="meal" value="breakfast" checked data-time-target="meal-breakfast" />
                   Завтрак
-                  <input id="meal-breakfast" class="meal-time-input" type="time" value="08:00" />
+                  <input id="meal-breakfast" class="meal-time-input" type="time" value="08:00" lang="ru" />
                 </label>
                 <label class="inline">
                   <input type="checkbox" name="meal" value="lunch" checked data-time-target="meal-lunch" />
                   Обед
-                  <input id="meal-lunch" class="meal-time-input" type="time" value="13:00" />
+                  <input id="meal-lunch" class="meal-time-input" type="time" value="13:00" lang="ru" />
                 </label>
                 <label class="inline">
                   <input type="checkbox" name="meal" value="dinner" checked data-time-target="meal-dinner" />
                   Ужин
-                  <input id="meal-dinner" class="meal-time-input" type="time" value="19:00" />
+                  <input id="meal-dinner" class="meal-time-input" type="time" value="19:00" lang="ru" />
                 </label>
                 <label class="inline">
                   <input type="checkbox" name="meal" value="snack" data-time-target="meal-snack" />
                   Перекус
-                  <input id="meal-snack" class="meal-time-input" type="time" value="16:00" />
+                  <input id="meal-snack" class="meal-time-input" type="time" value="16:00" lang="ru" />
                 </label>
                 <label class="inline">
                   <input type="checkbox" name="meal" value="bedtime" data-time-target="meal-bedtime" />
                   Перед сном
-                  <input id="meal-bedtime" class="meal-time-input" type="time" value="22:00" />
+                  <input id="meal-bedtime" class="meal-time-input" type="time" value="22:00" lang="ru" />
                 </label>
                 <p class="field-error" data-error-for="meal_plan"></p>
               </div>
@@ -198,7 +237,7 @@
                 </label>
                 <label>
                   Время начала
-                  <input id="everyStartTime" name="everyStartTime" type="time" value="08:00" />
+                  <input id="everyStartTime" name="everyStartTime" type="time" value="08:00" lang="ru" />
                 </label>
                 <label>
                   Время
@@ -273,7 +312,7 @@
             </fieldset>
 
             <div class="field">
-              <button id="submit-button" type="submit">Сохранить</button>
+              <button id="submit-button" type="submit" class="btn btn-primary">Сохранить</button>
             </div>
           </form>
         </div>

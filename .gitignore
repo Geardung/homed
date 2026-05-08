@@ -1,3 +1,6 @@
 node_modules/
 homed.sqlite
+homed.e2e.sqlite
 .env
+test-results/
+playwright-report/

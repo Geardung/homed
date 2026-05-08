@@ -17,7 +17,6 @@ const UI_TEXT = {
     archived: 'архивных',
   },
   filters: {
-    allCategories: 'Все категории',
     loading: 'Загрузка...',
   },
 };
@@ -29,7 +28,18 @@ const sortFilter = document.getElementById('sort-filter');
 const statusFilter = document.getElementById('status-filter');
 const lowStockFilter = document.getElementById('low-stock-filter');
 const expiringFilter = document.getElementById('expired-soon-filter');
-const categoryFilter = document.getElementById('category-filter');
+
+const navListBtn = document.getElementById('nav-list');
+const navCalendarBtn = document.getElementById('nav-calendar');
+const viewList = document.getElementById('view-list');
+const viewCalendar = document.getElementById('view-calendar');
+
+const calendarTitle = document.getElementById('calendar-title');
+const calendarGrid = document.getElementById('calendar-grid');
+const calendarPrevBtn = document.getElementById('calendar-prev');
+const calendarTodayBtn = document.getElementById('calendar-today');
+const calendarNextBtn = document.getElementById('calendar-next');
+const calendarDetails = document.getElementById('calendar-details');
 
 const modal = document.getElementById('med-modal');
 const modalTitle = document.getElementById('med-modal-title');
@@ -69,11 +79,42 @@ const monthCycleTimesPerDayInput = document.getElementById('monthCycleTimesPerDa
 const monthCycleSlots = document.getElementById('monthCycleSlots');
 
 const mealCheckboxes = [...document.querySelectorAll('input[name="meal"]')];
+const unitLabelByCode = {
+  tabs: 'таблетки / шт',
+  ml: 'мл',
+  mg: 'мг',
+  drops: 'капли',
+  bottle: 'флакон',
+};
 
 let editingMedicationId = null;
+let activeView = 'list';
+let calendarMonthCursor = new Date();
+let calendarMarksByDate = new Map();
+
+function normalizePositiveNumber(value, fallback = 1) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
 
 function toStringValue(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function toDisplayUnit(value) {
+  const code = toStringValue(value).toLowerCase();
+  if (!code) {
+    return '';
+  }
+
+  if (unitLabelByCode[code]) {
+    return unitLabelByCode[code];
+  }
+
+  return code;
 }
 
 function toNumber(value) {
@@ -94,6 +135,50 @@ function formatDate(dateInput) {
   return date.toLocaleDateString('ru-RU');
 }
 
+function formatDateTime(dateInput) {
+  if (!dateInput) {
+    return '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u043e';
+  }
+
+  const date = new Date(dateInput);
+  if (Number.isNaN(date.getTime())) {
+    return dateInput;
+  }
+
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+function toISODateString(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function startOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function isSameMonth(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+}
+
 function escapeHTML(value) {
   const stringValue = String(value ?? '');
   return stringValue
@@ -102,6 +187,261 @@ function escapeHTML(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
+}
+
+function computeDailyConsumption(medication) {
+  const doseAmount = Number(medicationField(medication, 'dose_amount', 'doseAmount') || 0);
+  if (!Number.isFinite(doseAmount) || doseAmount <= 0) {
+    return null;
+  }
+
+  const type = medicationField(medication, 'frequency_type', 'frequencyType') || 'times_per_day';
+  const rawDetails = medicationField(medication, 'frequency_details', 'frequencyDetails')
+    ?? medicationField(medication, 'frequency_value', 'frequencyValue')
+    ?? {};
+  const details = parseFrequencyValue(rawDetails) || {};
+
+  if (type === 'times_per_day') {
+    const timesPerDay = Number(details.timesPerDay || details.times_per_day || 1);
+    if (!Number.isFinite(timesPerDay) || timesPerDay <= 0) {
+      return null;
+    }
+    return doseAmount * timesPerDay;
+  }
+
+  if (type === 'meal_plan') {
+    const meals = Array.isArray(details.meals) ? details.meals : [];
+    const timesPerDay = meals.length || 1;
+    return doseAmount * timesPerDay;
+  }
+
+  if (type === 'every_n_hours') {
+    const everyHours = Number(details.everyHours || details.every_hours || 8);
+    if (!Number.isFinite(everyHours) || everyHours <= 0) {
+      return null;
+    }
+    const timesPerDay = Math.max(1, Math.floor(24 / everyHours));
+    return doseAmount * timesPerDay;
+  }
+
+  if (type === 'weekly') {
+    const days = Array.isArray(details.days) ? details.days : [];
+    const timesPerDay = Number(details.timesPerDay || details.times_per_day || 1);
+    if (!Number.isFinite(timesPerDay) || timesPerDay <= 0) {
+      return null;
+    }
+    const perWeek = Math.max(1, days.length) * timesPerDay * doseAmount;
+    return perWeek / 7;
+  }
+
+  if (type === 'week_cycle') {
+    const onWeeks = Number(details.onWeeks || 1);
+    const offWeeks = Number(details.offWeeks || 0);
+    const timesPerDay = Number(details.timesPerDay || 1);
+    if (!Number.isFinite(onWeeks) || !Number.isFinite(offWeeks) || !Number.isFinite(timesPerDay)) {
+      return null;
+    }
+    const cycleDays = Math.max(1, (onWeeks + offWeeks) * 7);
+    const onDays = Math.max(1, onWeeks * 7);
+    const perCycle = onDays * Math.max(1, timesPerDay) * doseAmount;
+    return perCycle / cycleDays;
+  }
+
+  if (type === 'monthly_cycle') {
+    const onMonths = Number(details.onMonths || 1);
+    const offMonths = Number(details.offMonths || 0);
+    const timesPerDay = Number(details.timesPerDay || 1);
+    if (!Number.isFinite(onMonths) || !Number.isFinite(offMonths) || !Number.isFinite(timesPerDay)) {
+      return null;
+    }
+    const cycleDays = Math.max(1, (onMonths + offMonths) * 30);
+    const onDays = Math.max(1, onMonths * 30);
+    const perCycle = onDays * Math.max(1, timesPerDay) * doseAmount;
+    return perCycle / cycleDays;
+  }
+
+  return null;
+}
+
+function computeEndsOnDate(medication) {
+  const estimatedDaysLeft = Number(medicationField(medication, 'estimated_days_left', 'estimatedDaysLeft'));
+  if (Number.isFinite(estimatedDaysLeft) && estimatedDaysLeft >= 0) {
+    const today = new Date();
+    return addDays(today, Math.ceil(estimatedDaysLeft));
+  }
+
+  const remaining = Number(medicationField(medication, 'remaining_quantity', 'remainingQuantity'));
+  if (!Number.isFinite(remaining) || remaining <= 0) {
+    return null;
+  }
+
+  const dailyConsumption = computeDailyConsumption(medication);
+  if (!Number.isFinite(dailyConsumption) || dailyConsumption <= 0) {
+    return null;
+  }
+
+  const daysLeft = Math.ceil(remaining / dailyConsumption);
+  const startAt = medicationField(medication, 'start_at', 'startAt');
+  const startDate = startAt ? new Date(startAt) : new Date();
+  if (Number.isNaN(startDate.getTime())) {
+    return addDays(new Date(), daysLeft);
+  }
+  return addDays(startDate, daysLeft);
+}
+
+function buildCalendarMarks(medications) {
+  const marks = new Map();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  medications.forEach((med) => {
+    const endsOn = computeEndsOnDate(med);
+    if (!endsOn || Number.isNaN(endsOn.getTime())) {
+      return;
+    }
+
+    const date = new Date(endsOn);
+    date.setHours(0, 0, 0, 0);
+    const iso = toISODateString(date);
+    if (!iso) {
+      return;
+    }
+
+    const daysDelta = Math.round((date.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+    const severity = daysDelta <= 0 ? 'danger' : daysDelta <= 3 ? 'warning' : 'normal';
+
+    const list = marks.get(iso) || [];
+    list.push({
+      id: med.id,
+      name: med.name,
+      endsOnISO: iso,
+      severity,
+      daysDelta,
+    });
+    marks.set(iso, list);
+  });
+
+  return marks;
+}
+
+function renderCalendar(monthCursor) {
+  if (!calendarGrid || !calendarTitle) {
+    return;
+  }
+
+  const monthStart = startOfMonth(monthCursor);
+  const monthTitle = monthStart.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
+  calendarTitle.textContent = monthTitle[0].toUpperCase() + monthTitle.slice(1);
+
+  calendarGrid.innerHTML = '';
+
+  const dowLabels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  dowLabels.forEach((label) => {
+    const node = document.createElement('div');
+    node.className = 'calendar__dow';
+    node.textContent = label;
+    calendarGrid.appendChild(node);
+  });
+
+  const jsDay = monthStart.getDay(); // 0=Sun..6=Sat
+  const offset = (jsDay + 6) % 7; // make Monday first
+  const gridStart = addDays(monthStart, -offset);
+
+  const totalCells = 6 * 7;
+  for (let index = 0; index < totalCells; index += 1) {
+    const date = addDays(gridStart, index);
+    const iso = toISODateString(date);
+    const inMonth = isSameMonth(date, monthStart);
+    const items = iso ? (calendarMarksByDate.get(iso) || []) : [];
+
+    const cell = document.createElement('button');
+    cell.type = 'button';
+    cell.className = 'calendar__cell';
+    cell.dataset.date = iso || '';
+    cell.setAttribute('role', 'gridcell');
+    if (!inMonth) {
+      cell.setAttribute('aria-disabled', 'true');
+    }
+
+    const day = document.createElement('div');
+    day.className = 'calendar__day';
+    day.textContent = String(date.getDate());
+    cell.appendChild(day);
+
+    if (items.length > 0) {
+      const mark = document.createElement('div');
+      mark.className = 'calendar__mark';
+      const top = items.slice(0, 6);
+      top.forEach((item) => {
+        const dot = document.createElement('span');
+        dot.className = `calendar__dot${item.severity === 'warning' ? ' is-warning' : item.severity === 'danger' ? ' is-danger' : ''}`;
+        mark.appendChild(dot);
+      });
+      cell.appendChild(mark);
+
+      const count = document.createElement('div');
+      count.className = 'calendar__count';
+      count.textContent = items.length === 1 ? '1 препарат' : `${items.length} препаратов`;
+      cell.appendChild(count);
+
+      const title = items
+        .slice(0, 12)
+        .map((item) => `${item.name} — ${formatDate(item.endsOnISO)}`)
+        .join('\n');
+      cell.title = title;
+    }
+
+    calendarGrid.appendChild(cell);
+  }
+}
+
+function renderCalendarDetails(dateISO) {
+  if (!calendarDetails) {
+    return;
+  }
+
+  const items = calendarMarksByDate.get(dateISO) || [];
+  if (!dateISO || items.length === 0) {
+    calendarDetails.classList.add('muted');
+    calendarDetails.innerHTML = 'На выбранную дату нет отметок.';
+    return;
+  }
+
+  const dateLabel = formatDate(dateISO);
+  calendarDetails.classList.remove('muted');
+  calendarDetails.innerHTML = `
+    <div><strong>${escapeHTML(dateLabel)}</strong></div>
+    <ul>
+      ${items
+        .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+        .map((item) => `<li>${escapeHTML(item.name)} <span class="muted">(${escapeHTML(item.severity === 'danger' ? 'сегодня/просрочено' : item.severity === 'warning' ? 'скоро' : 'план')})</span></li>`)
+        .join('')}
+    </ul>
+  `;
+}
+
+function setActiveView(nextView) {
+  activeView = nextView === 'calendar' ? 'calendar' : 'list';
+
+  if (viewList) {
+    viewList.classList.toggle('hidden', activeView !== 'list');
+  }
+  if (viewCalendar) {
+    viewCalendar.classList.toggle('hidden', activeView !== 'calendar');
+  }
+
+  if (navListBtn) {
+    navListBtn.classList.toggle('is-active', activeView === 'list');
+    navListBtn.setAttribute('aria-current', activeView === 'list' ? 'page' : 'false');
+  }
+  if (navCalendarBtn) {
+    navCalendarBtn.classList.toggle('is-active', activeView === 'calendar');
+    navCalendarBtn.setAttribute('aria-current', activeView === 'calendar' ? 'page' : 'false');
+  }
+
+  if (activeView === 'calendar') {
+    renderCalendar(calendarMonthCursor);
+  }
 }
 
 function showModal() {
@@ -145,7 +485,8 @@ function applyFrequencyType(type) {
   }
 
   if (type === 'every_n_hours') {
-    const count = Math.max(1, Math.floor(24 / Number(everyHoursInput.value || 8)));
+    const normalizedHours = normalizePositiveNumber(everyHoursInput.value, 8);
+    const count = Math.max(1, Math.floor(24 / normalizedHours));
     renderSlotsFromCount(everyHoursSlots, count, '');
   }
 
@@ -159,10 +500,58 @@ function applyFrequencyType(type) {
 
 function getTodayDateValue() {
   const date = new Date();
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
+  return formatDateInputValue(date);
+}
+
+function formatDateInputValue(rawValue) {
+  const date = rawValue ? new Date(rawValue) : null;
+  if (!date || Number.isNaN(date.getTime())) {
+    return '';
+  }
+
   const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = String(date.getFullYear());
+  return `${day}.${month}.${year}`;
+}
+
+function normalizeDateInputValue(rawValue) {
+  const value = toStringValue(rawValue);
+  if (!value) {
+    return null;
+  }
+
+  const date = value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (date) {
+    const day = Number(date[1]);
+    const month = Number(date[2]);
+    const year = Number(date[3]);
+    const parsed = new Date(year, month - 1, day);
+    if (
+      parsed.getFullYear() === year &&
+      parsed.getMonth() + 1 === month &&
+      parsed.getDate() === day
+    ) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  const isoDate = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDate) {
+    const day = Number(isoDate[3]);
+    const month = Number(isoDate[2]);
+    const year = Number(isoDate[1]);
+    const parsed = new Date(year, month - 1, day);
+    if (
+      parsed.getFullYear() === year &&
+      parsed.getMonth() + 1 === month &&
+      parsed.getDate() === day
+    ) {
+      return `${isoDate[1]}-${isoDate[2]}-${isoDate[3]}`;
+    }
+  }
+
+  return null;
 }
 
 function parseFrequencyValue(rawValue) {
@@ -345,6 +734,13 @@ function collectTimeInputs(container) {
     .filter((time) => /^([01]\d|2[0-3]):[0-5]\d$/.test(time));
 }
 
+function force24HourTimeInputs() {
+  const timeInputs = [...document.querySelectorAll('input[type="time"]')];
+  timeInputs.forEach((input) => {
+    input.lang = 'ru';
+  });
+}
+
 function medicationField(row, snakeField, camelField = null) {
   if (camelField && row?.[camelField] !== undefined && row?.[camelField] !== null) {
     return row[camelField];
@@ -367,6 +763,7 @@ function renderSlotsFromCount(container, count, initialValues = []) {
     const input = document.createElement('input');
     input.type = 'time';
     input.className = 'time-slot';
+    input.lang = 'ru';
     const initial = toStringValue(initialValues[index]);
     if (initial) {
       input.value = initial;
@@ -546,11 +943,14 @@ function parseFormData() {
     frequency_type: frequency.type,
     frequency_details: frequency.details,
     price,
-    category: toStringValue(formData.category) || null,
     expires_at: toStringValue(formData.expires_at) || null,
     reminder_timezone: toStringValue(formData.reminder_timezone) || null,
-    start_at: toStringValue(formData.start_at) || null,
+    start_at: normalizeDateInputValue(formData.start_at) || null,
   };
+
+  if (formData.start_at && !payload.start_at) {
+    errors.start_at = '\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0434\u0430\u0442\u0443 \u0432 \u0444\u043e\u0440\u043c\u0430\u0442\u0435 \u0414\u0414.\u041c\u041c.\u0413\u0413\u0413\u0413';
+  }
 
   return { payload, errors };
 }
@@ -690,11 +1090,6 @@ function getMedicationListParams() {
     params.set('expiring_soon', String(LOW_STOCK_DAYS_DEFAULT));
   }
 
-  const category = toStringValue(categoryFilter?.value);
-  if (category) {
-    params.set('category', category);
-  }
-
   return params;
 }
 
@@ -720,7 +1115,9 @@ function computeUrgencyHint(medication) {
 
 function renderMedicationCard(medication) {
   const status = medicationField(medication, 'stock_state', 'stockState') || 'normal';
-  const dosage = `${medicationField(medication, 'dose_amount', 'doseAmount') || 0} ${medicationField(medication, 'dose_unit', 'doseUnit') || 'pcs.'}`;
+  const dosage = `${medicationField(medication, 'dose_amount', 'doseAmount') || 0} ${toDisplayUnit(
+    medicationField(medication, 'dose_unit', 'doseUnit') || 'шт.',
+  )}`;
   const remaining = Number(medicationField(medication, 'remaining_quantity', 'remainingQuantity') || 0);
   const total = Number(medicationField(medication, 'total_quantity', 'totalQuantity') || 0);
   const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((remaining / total) * 100))) : 0;
@@ -729,8 +1126,6 @@ function renderMedicationCard(medication) {
 
   const schedule = toStringValue(medicationField(medication, 'next_due_at', 'nextDueAt'));
   const frequencyLabel = medicationField(medication, 'frequency_label', 'frequencyLabel') || '';
-
-  const category = medication.category || '\u0411\u0435\u0437 \u043a\u0430\u0442\u0435\u0433\u043e\u0440\u0438\u0438';
 
   const statusLabel = {
     low: '\u041d\u0438\u0437\u043a\u0438\u0439 \u043e\u0441\u0442\u0430\u0442\u043e\u043a',
@@ -750,16 +1145,17 @@ function renderMedicationCard(medication) {
   card.innerHTML = `
     <header class="card-header">
       <h3>${escapeHTML(medication.name)}</h3>
-      <span>${escapeHTML(category)}</span>
     </header>
     <p>\u0414\u043e\u0437\u043e\u0432\u043a\u0430: ${escapeHTML(dosage)}</p>
-    <p>\u041e\u0441\u0442\u0430\u0442\u043e\u043a: ${escapeHTML(remaining.toFixed(2))} / ${escapeHTML(total.toFixed(2))} ${escapeHTML(medicationField(medication, 'quantity_unit', 'quantityUnit') || 'pcs.')}</p>
+    <p>\u041e\u0441\u0442\u0430\u0442\u043e\u043a: ${escapeHTML(remaining.toFixed(2))} / ${escapeHTML(total.toFixed(2))} ${escapeHTML(toDisplayUnit(
+      medicationField(medication, 'quantity_unit', 'quantityUnit') || 'шт.',
+    ))}</p>
     <div class="progress">
       <div class="progress-fill" style="width:${percent}%"></div>
     </div>
     <p>\u041e\u0446\u0435\u043d\u043a\u0430 \u0434\u043e: ${escapeHTML((medicationField(medication, 'estimated_days_left', 'estimatedDaysLeft') ?? '-'))} \u0434\u043d.</p>
     <p>\u0420\u0430\u0441\u043f\u0438\u0441\u0430\u043d\u0438\u0435: ${escapeHTML(frequencyLabel || '\u041d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u043e')}</p>
-    <p>\u0421\u043b\u0435\u0434\u0443\u0449\u0438\u0439 \u043f\u0440\u0438\u0451\u043c: ${escapeHTML(schedule || '-') } <span class="urgency ${urgencyClass}">${escapeHTML(urgency)}</span></p>
+    <p>\u0421\u043b\u0435\u0434\u0443\u0449\u0438\u0439 \u043f\u0440\u0438\u0451\u043c: ${escapeHTML(formatDateTime(schedule) || '-') } <span class="urgency ${urgencyClass}">${escapeHTML(urgency)}</span></p>
     <p>\u0418\u0441\u0442\u0435\u043a\u0430\u0435\u0442: ${escapeHTML(formatDate(medicationField(medication, 'expires_at', 'expiresAt') || ''))}</p>
     <p>\u0421\u0442\u0430\u0442\u0443\u0441: ${escapeHTML(statusLabel)}</p>
     <p>\u0414\u043d\u0435\u0439 \u0434\u043e \u043f\u0440\u043e\u0441\u0440\u043e\u0447\u043a\u0438: ${escapeHTML(medicationField(medication, 'expires_in_days', 'expiresInDays') ?? '-')} \u0434\u043d.</p>
@@ -789,39 +1185,20 @@ function renderEmpty() {
   medListEmpty.textContent = `\u041d\u0435\u0442 \u043d\u0430\u0439\u0434\u0435\u043d\u043e ${modeLabel} \u043b\u0435\u043a\u0430\u0440\u0441\u0442\u0432${label}.`;
 }
 
-function updateCategoryFilterOptions(medications) {
-  if (!categoryFilter) {
-    return;
-  }
-
-  const categories = new Set();
-  medications.forEach((medication) => {
-    const category = medicationField(medication, 'category', 'category');
-    if (category) {
-      categories.add(category);
-    }
-  });
-
-  const previous = categoryFilter.value || '';
-  categoryFilter.innerHTML = `<option value="">${UI_TEXT.filters.allCategories}</option>${[...categories]
-    .sort((left, right) => left.localeCompare(right))
-    .map((category) => `<option value="${category}">${category}</option>`)
-    .join('')}`;
-
-  if ([...categoryFilter.options].some((option) => option.value === previous)) {
-    categoryFilter.value = previous;
-  }
-}
-
 async function loadMedications() {
   medListEmpty.textContent = UI_TEXT.filters.loading;
 
   try {
     const response = await apiRequest(`/api/medications?${getMedicationListParams().toString()}`);
     const medications = response.data || [];
-    updateCategoryFilterOptions(medications);
 
     medList.innerHTML = '';
+
+    medsCache = medications;
+    calendarMarksByDate = buildCalendarMarks(medications);
+    if (activeView === 'calendar') {
+      renderCalendar(calendarMonthCursor);
+    }
 
     if (!medications.length) {
       renderEmpty();
@@ -829,7 +1206,6 @@ async function loadMedications() {
     }
 
     medListEmpty.textContent = '';
-    medsCache = medications;
     medications.forEach(renderMedicationCard);
   } catch (error) {
     medListEmpty.textContent = error.message;
@@ -857,14 +1233,11 @@ function openEditModal(medication) {
   medForm.elements.dose_amount.value = medicationField(medication, 'dose_amount', 'doseAmount') ?? '';
   doseUnitSelect.value = medicationField(medication, 'dose_unit', 'doseUnit') || doseUnitSelect.value;
   medForm.elements.price.value = medication.price ?? '';
-  if (medForm.elements.category) {
-    medForm.elements.category.value = medication.category || '';
-  }
   const expiresAt = medicationField(medication, 'expires_at', 'expiresAt');
   medForm.elements.expires_at.value = expiresAt ? expiresAt.slice(0, 10) : '';
   medForm.elements.reminder_timezone.value = medicationField(medication, 'reminder_timezone', 'reminderTimezone') || '';
   const startAt = medicationField(medication, 'start_at', 'startAt');
-  medForm.elements.start_at.value = startAt ? startAt.slice(0, 10) : '';
+  medForm.elements.start_at.value = startAt ? formatDateInputValue(startAt) : '';
 
   const frequencyType = medicationField(medication, 'frequency_type', 'frequencyType') || 'times_per_day';
   const radio = frequencyRadios.find((item) => item.value === frequencyType);
@@ -899,7 +1272,7 @@ async function restoreMedication(id) {
 
 async function takeMedication(id, medication) {
   const defaultQuantity = Number(medicationField(medication, 'dose_amount', 'doseAmount') || DEFAULT_TAKE_QUANTITY);
-  const doseUnit = medicationField(medication, 'dose_unit', 'doseUnit') || 'pcs.';
+  const doseUnit = toDisplayUnit(medicationField(medication, 'dose_unit', 'doseUnit') || 'шт.');
   const rawQuantity = window.prompt(`\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0434\u043e\u0437\u0443 (${doseUnit}):`, String(defaultQuantity));
   const quantity = Number(rawQuantity);
   if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -988,7 +1361,9 @@ async function onMedicationAction(event) {
   }
 
   if (action === 'take') {
-    await takeMedication(id, medication);
+    window.setTimeout(() => {
+      void takeMedication(id, medication);
+    }, 0);
     return;
   }
 
@@ -1003,6 +1378,14 @@ async function loadUnits() {
     const units = response.data || [];
     if (!units.length) {
       return;
+    }
+
+    for (const unit of units) {
+      const code = toStringValue(unit.code).toLowerCase();
+      const label = toStringValue(unit.label);
+      if (code) {
+        unitLabelByCode[code] = label || code;
+      }
     }
 
     unitSelect.innerHTML = '';
@@ -1023,11 +1406,56 @@ async function loadUnits() {
 
 async function init() {
   document.documentElement.lang = 'ru';
+  force24HourTimeInputs();
   if (startAtInput) {
     startAtInput.lang = 'ru';
   }
   loadUnits();
   await loadMedications();
+  setActiveView('list');
+}
+
+if (navListBtn) {
+  navListBtn.addEventListener('click', () => setActiveView('list'));
+}
+
+if (navCalendarBtn) {
+  navCalendarBtn.addEventListener('click', () => setActiveView('calendar'));
+}
+
+if (calendarPrevBtn) {
+  calendarPrevBtn.addEventListener('click', () => {
+    calendarMonthCursor = new Date(calendarMonthCursor.getFullYear(), calendarMonthCursor.getMonth() - 1, 1);
+    renderCalendar(calendarMonthCursor);
+  });
+}
+
+if (calendarNextBtn) {
+  calendarNextBtn.addEventListener('click', () => {
+    calendarMonthCursor = new Date(calendarMonthCursor.getFullYear(), calendarMonthCursor.getMonth() + 1, 1);
+    renderCalendar(calendarMonthCursor);
+  });
+}
+
+if (calendarTodayBtn) {
+  calendarTodayBtn.addEventListener('click', () => {
+    calendarMonthCursor = new Date();
+    renderCalendar(calendarMonthCursor);
+  });
+}
+
+if (calendarGrid) {
+  calendarGrid.addEventListener('click', (event) => {
+    const target = event.target.closest('.calendar__cell');
+    if (!target) {
+      return;
+    }
+    const dateISO = toStringValue(target.dataset.date);
+    if (!dateISO) {
+      return;
+    }
+    renderCalendarDetails(dateISO);
+  });
 }
 
 openModalBtn.addEventListener('click', () => {
@@ -1063,7 +1491,8 @@ timesPerDayInput.addEventListener('input', () => {
 });
 
 everyHoursInput.addEventListener('input', () => {
-  renderSlotsFromCount(everyHoursSlots, Math.max(1, Math.floor(24 / Number(everyHoursInput.value || 1))));
+  const normalizedHours = normalizePositiveNumber(everyHoursInput.value, 1);
+  renderSlotsFromCount(everyHoursSlots, Math.max(1, Math.floor(24 / normalizedHours)));
 });
 
 weeklyTimesInput.addEventListener('input', () => {
@@ -1100,8 +1529,5 @@ sortFilter.addEventListener('change', loadMedications);
 statusFilter.addEventListener('change', loadMedications);
 lowStockFilter.addEventListener('change', loadMedications);
 expiringFilter.addEventListener('change', loadMedications);
-if (categoryFilter) {
-  categoryFilter.addEventListener('change', loadMedications);
-}
 
 init();

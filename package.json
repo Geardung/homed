@@ -10,7 +10,10 @@
     "start": "node src/server.js",
     "migrate": "node src/migrate.js",
     "migrate:status": "node src/migrate.js status",
-    "dev": "node src/server.js"
+    "dev": "node src/server.js",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
+    "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
     "@tma.js/init-data-node": "^2.0.7",
@@ -18,5 +21,8 @@
     "dotenv": "^17.4.2",
     "express": "^4.22.1",
     "sqlite3": "^6.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
   }
 }
