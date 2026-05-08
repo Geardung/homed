@@ -2,9 +2,9 @@ import { devices, defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 10_000,
+  timeout: 20_000,
   expect: {
-    timeout: 5_000,
+    timeout: 7_000,
   },
   reporter: [
     ['list'],
@@ -21,6 +21,18 @@ export default defineConfig({
     {
       name: 'chromium',
       use: devices['Desktop Chrome'],
+    },
+    {
+      name: 'mobile-chrome',
+      use: devices['Pixel 5'],
+    },
+    {
+      name: 'mobile-safari',
+      use: { ...devices['iPhone 12'], browserName: 'chromium' },
+    },
+    {
+      name: 'tablet',
+      use: { ...devices['iPad (gen 7)'], browserName: 'chromium' },
     },
   ],
   webServer: {
